@@ -31,6 +31,7 @@ pnpm install
 ### 3. Set up environment variables
 Create a `.env.local` file and configure the required API keys:
 ```env
+MONGODB_URI=mongodb://localhost:27017/chatapp
 NEXTAUTH_SECRET=your-secret-key
 NEXTAUTH_URL=http://localhost:3000
 AI_API_KEY=your-ai-provider-key
