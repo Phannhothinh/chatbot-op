@@ -1,8 +1,8 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '../auth/[...nextauth]';
-import fs from 'fs';
-import path from 'path';
+import { connectMongo } from '@/lib/db';
+import User from '@/models/User';
 
 export default async function handler(
   req: NextApiRequest,
@@ -14,33 +14,37 @@ export default async function handler(
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
+  // @ts-expect-error - Session user type from NextAuth
+  const userId = session.user?.id || session.user?.email;
+
+  if (!userId) {
+    return res.status(400).json({ error: 'User ID not found in session' });
+  }
+
+  await connectMongo();
+
   if (req.method === 'POST') {
     try {
-      const { apiKey } = req.body;
+      const { provider, model, apiKey } = req.body;
 
-      if (!apiKey || typeof apiKey !== 'string') {
-        return res.status(400).json({ error: 'Invalid API key' });
+      if (!provider || !model || !apiKey || 
+          typeof provider !== 'string' || 
+          typeof model !== 'string' || 
+          typeof apiKey !== 'string') {
+        return res.status(400).json({ error: 'Invalid request data' });
       }
 
-      // Get the path to .env.local
-      const envPath = path.resolve(process.cwd(), '.env.local');
-
-      // Read the current .env.local file
-      let envContent = '';
-      try {
-        envContent = fs.readFileSync(envPath, 'utf8');
-      } catch {
-        // File might not exist, which is fine
-      }
-
-      // Check if OPENAI_API_KEY already exists
-      const regex = /^OPENAI_API_KEY=.*/m;
-      const newEnvContent = regex.test(envContent)
-        ? envContent.replace(regex, `OPENAI_API_KEY=${apiKey}`)
-        : envContent + `\nOPENAI_API_KEY=${apiKey}`;
-
-      // Write the updated content back to .env.local
-      fs.writeFileSync(envPath, newEnvContent);
+      // Find user and update or create API config
+      await User.findOneAndUpdate(
+        { id: userId },
+        { 
+          $set: { 
+            [`apiConfigs.${provider}`]: { apiKey, model },
+            activeProvider: provider
+          } 
+        },
+        { new: true, upsert: true }
+      );
 
       return res.status(200).json({ success: true });
     } catch (error) {
@@ -49,24 +53,29 @@ export default async function handler(
     }
   } else if (req.method === 'GET') {
     try {
-      // Get the path to .env.local
-      const envPath = path.resolve(process.cwd(), '.env.local');
-
-      // Read the current .env.local file
-      let envContent = '';
-      try {
-        envContent = fs.readFileSync(envPath, 'utf8');
-      } catch {
-        // File might not exist, which is fine
-        return res.status(200).json({ hasApiKey: false });
+      const user = await User.findOne({ id: userId });
+      
+      if (!user || !user.apiConfigs || user.apiConfigs.size === 0) {
+        return res.status(200).json({ 
+          hasApiKey: false,
+          configs: {},
+          activeProvider: null
+        });
       }
 
-      // Check if OPENAI_API_KEY exists and is not commented out
-      const regex = /^OPENAI_API_KEY=(.+)/m;
-      const match = regex.exec(envContent);
+      // Convert Map to plain object for JSON response
+      const configs: Record<string, { model: string }> = {};
+      // Use type assertion to handle mongoose Map type
+      user.apiConfigs.forEach((value, key: string) => {
+        if (value && typeof value.model === 'string') {
+          configs[key] = { model: value.model };
+        }
+      });
       
       return res.status(200).json({ 
-        hasApiKey: !!match && match[1].trim() !== '',
+        hasApiKey: true,
+        configs,
+        activeProvider: user.activeProvider
       });
     } catch (error) {
       console.error('Error checking API key:', error);

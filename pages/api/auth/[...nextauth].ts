@@ -1,10 +1,10 @@
-import NextAuth from 'next-auth/next';
-import { AuthOptions } from 'next-auth';
+import NextAuth from 'next-auth';
 import CredentialsProvider from 'next-auth/providers/credentials';
 import { MongoDBAdapter } from '@next-auth/mongodb-adapter';
 import clientPromise from '../../../lib/db';
 
-export const authOptions: AuthOptions = {
+// Use a simple configuration that works with TypeScript
+export const authOptions = {
   adapter: MongoDBAdapter(clientPromise),
   
   providers: [
@@ -15,13 +15,12 @@ export const authOptions: AuthOptions = {
         password: { label: 'Password', type: 'password' },
       },
       async authorize(credentials) {
-        // For demo purposes, you can use a hardcoded user
-        // In a real app, you would look up the user in your database
-        if (credentials?.username === 'demo' && credentials?.password === 'password') {
+        // For demo purposes, use a hardcoded user
+        if (credentials?.username === 'test@example.com' && credentials?.password === 'password123') {
           return {
             id: '1',
-            name: 'Demo User',
-            email: 'demo@example.com',
+            name: 'Test User',
+            email: 'test@example.com',
           };
         }
         
@@ -36,16 +35,15 @@ export const authOptions: AuthOptions = {
   },
   
   callbacks: {
-    async jwt({ token, user }: { token: any; user: any }) {
+    async jwt({ token, user }) {
       if (user) {
         token.id = user.id;
       }
       return token;
     },
-    async session({ session, token }: { session: any; token: any }) {
+    async session({ session, token }) {
       if (session.user && token) {
-        // Use type assertion to add id to session.user
-        (session.user as { id?: string }).id = token.id;
+        session.user.id = token.id;
       }
       return session;
     },

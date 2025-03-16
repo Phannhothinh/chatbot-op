@@ -20,7 +20,7 @@ export function MessageInput({ onSendMessage, disabled = false }: MessageInputPr
   }, [disabled]);
 
   const handleSubmit = (e: FormEvent) => {
-    e.prevtDefault();
+    e.preventDefault();
     if (message.trim()) {
       onSendMessage(message);
       setMessage("");

@@ -25,8 +25,10 @@ export function ChatContainer() {
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [showApiKeyModal, setShowApiKeyModal] = useState(false);
   const [hasApiKey, setHasApiKey] = useState(true);
+  const [activeProvider, setActiveProvider] = useState<string | null>(null);
+  const [apiConfigs, setApiConfigs] = useState<Record<string, { model: string }>>({});
 
-  // Check if OpenAI API key is set
+  // Check if API key is set
   const checkApiKey = useCallback(async () => {
     if (status !== "authenticated") return;
     
@@ -35,6 +37,9 @@ export function ChatContainer() {
       if (response.ok) {
         const data = await response.json();
         setHasApiKey(data.hasApiKey);
+        setActiveProvider(data.activeProvider);
+        setApiConfigs(data.configs || {});
+        
         if (!data.hasApiKey) {
           setShowApiKeyModal(true);
         }
@@ -44,19 +49,24 @@ export function ChatContainer() {
     }
   }, [status]);
 
-  // Save OpenAI API key
-  const saveApiKey = async (apiKey: string) => {
+  // Save API key with provider and model
+  const saveApiKey = async (provider: string, model: string, apiKey: string) => {
     try {
       const response = await fetch('/api/settings/api-key', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ apiKey }),
+        body: JSON.stringify({ provider, model, apiKey }),
       });
       
       if (response.ok) {
         setHasApiKey(true);
+        setActiveProvider(provider);
+        setApiConfigs(prev => ({
+          ...prev,
+          [provider]: { model }
+        }));
         // Reload the page to apply the new API key
         window.location.reload();
       } else {
@@ -182,9 +192,29 @@ export function ChatContainer() {
       <ApiKeyModal 
         isOpen={showApiKeyModal} 
         onClose={() => setShowApiKeyModal(false)} 
-        onSave={saveApiKey} 
+        onSave={saveApiKey}
+        initialProvider={activeProvider || undefined}
+        initialModel={activeProvider && apiConfigs[activeProvider] ? apiConfigs[activeProvider].model : undefined}
       />
       <div className="flex flex-col h-full">
+        <div className="flex justify-between items-center p-4 border-b">
+          <h2 className="text-lg font-semibold">Chat</h2>
+          {activeProvider && apiConfigs[activeProvider] && (
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">
+                Using: <span className="font-medium">{activeProvider.charAt(0).toUpperCase() + activeProvider.slice(1)}</span> - 
+                <span className="font-medium"> {apiConfigs[activeProvider].model}</span>
+              </span>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={() => setShowApiKeyModal(true)}
+              >
+                Change
+              </Button>
+            </div>
+          )}
+        </div>
         <div className="flex-1 overflow-auto">
           {isLoadingHistory ? (
             <div className="flex h-full items-center justify-center">
@@ -206,11 +236,23 @@ export function ChatContainer() {
                 onClick={() => setShowApiKeyModal(true)}
                 className="bg-yellow-600 hover:bg-yellow-700 text-white"
               >
-                Set OpenAI API Key
+                Configure AI Provider
               </Button>
               <p className="mt-2 text-sm text-muted-foreground">
-                Set your OpenAI API key to enable AI responses
+                Set up your AI provider to enable AI responses
               </p>
+            </div>
+          )}
+          
+          {status === "authenticated" && hasApiKey && (
+            <div className="mt-2 text-center">
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={() => setShowApiKeyModal(true)}
+              >
+                Change AI Provider Settings
+              </Button>
             </div>
           )}
         </div>
