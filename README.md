@@ -1,5 +1,6 @@
 # Chatbot App
 
+
 This is a **customizable chatbot application** built with [Next.js](https://nextjs.org), designed to be an open and flexible solution for AI-powered chat interfaces. It supports multiple AI providers and allows users to configure their chatbot for specific needs.
 
 ## Features
