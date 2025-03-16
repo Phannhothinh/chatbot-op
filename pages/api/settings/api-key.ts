@@ -1,83 +1,88 @@
-import type { NextApiRequest, NextApiResponse } from "next";
-import { getServerSession } from "next-auth/next";
-import { authOptions } from "../auth/[...nextauth]";
-import fs from "fs/promises";
-import path from "path";
-
-// Đường dẫn tới tệp lưu trữ API keys (có thể thay bằng cơ sở dữ liệu)
-const API_KEYS_FILE = path.join(process.cwd(), "api-keys.json");
-
-// Khởi tạo tệp nếu chưa tồn tại
-const initializeApiKeysFile = async () => {
-  try {
-    await fs.access(API_KEYS_FILE);
-  } catch {
-    await fs.writeFile(API_KEYS_FILE, JSON.stringify({}));
-  }
-};
-
-// Đọc API keys
-const readApiKeys = async () => {
-  await initializeApiKeysFile();
-  const data = await fs.readFile(API_KEYS_FILE, "utf-8");
-  return JSON.parse(data);
-};
-
-// Lưu API keys
-const writeApiKeys = async (data: any) => {
-  await fs.writeFile(API_KEYS_FILE, JSON.stringify(data, null, 2));
-};
+import { NextApiRequest, NextApiResponse } from 'next';
+import { getServerSession } from 'next-auth/next';
+import { authOptions } from '../auth/[...nextauth]';
+import { connectMongo } from '@/lib/db';
+import User from '@/models/User';
 
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
 ) {
   const session = await getServerSession(req, res, authOptions);
-  if (!session || !session.user) {
-    return res.status(401).json({ error: "Unauthorized" });
+
+  if (!session) {
+    return res.status(401).json({ error: 'Unauthorized' });
   }
 
-  const userId = session.user.id as string;
+  // @ts-expect-error - Session user type from NextAuth
+  const userId = session.user?.id || session.user?.email;
 
-  if (req.method === "GET") {
+  if (!userId) {
+    return res.status(400).json({ error: 'User ID not found in session' });
+  }
+
+  await connectMongo();
+
+  if (req.method === 'POST') {
     try {
-      const apiKeys = await readApiKeys();
-      const userKeys = apiKeys[userId] || {};
-      const hasApiKey = !!userKeys.provider && !!userKeys.apiKey;
-      return res.status(200).json({
-        hasApiKey,
-        activeProvider: userKeys.provider || null,
-        configs: userKeys.provider
-          ? { [userKeys.provider]: { model: userKeys.model } }
-          : {},
+      const { provider, model, apiKey } = req.body;
+
+      if (!provider || !model || !apiKey || 
+          typeof provider !== 'string' || 
+          typeof model !== 'string' || 
+          typeof apiKey !== 'string') {
+        return res.status(400).json({ error: 'Invalid request data' });
+      }
+
+      // Find user and update or create API config
+      await User.findOneAndUpdate(
+        { id: userId },
+        { 
+          $set: { 
+            [`apiConfigs.${provider}`]: { apiKey, model },
+            activeProvider: provider
+          } 
+        },
+        { new: true, upsert: true }
+      );
+
+      return res.status(200).json({ success: true });
+    } catch (error) {
+      console.error('Error saving API key:', error);
+      return res.status(500).json({ error: 'Failed to save API key' });
+    }
+  } else if (req.method === 'GET') {
+    try {
+      const user = await User.findOne({ id: userId });
+      
+      if (!user || !user.apiConfigs || user.apiConfigs.size === 0) {
+        return res.status(200).json({ 
+          hasApiKey: false,
+          configs: {},
+          activeProvider: null
+        });
+      }
+
+      // Convert Map to plain object for JSON response
+      const configs: Record<string, { model: string }> = {};
+      // Use type assertion to handle mongoose Map type
+      user.apiConfigs.forEach((value, key: string) => {
+        if (value && typeof value.model === 'string') {
+          configs[key] = { model: value.model };
+        }
+      });
+      
+      return res.status(200).json({ 
+        hasApiKey: true,
+        configs,
+        activeProvider: user.activeProvider
       });
     } catch (error) {
-      console.error("Error reading API keys:", error);
-      return res.status(500).json({ error: "Failed to fetch API keys" });
+      console.error('Error checking API key:', error);
+      return res.status(500).json({ error: 'Failed to check API key' });
     }
+  } else {
+    res.setHeader('Allow', ['GET', 'POST']);
+    return res.status(405).end(`Method ${req.method} Not Allowed`);
   }
-
-  if (req.method === "POST") {
-    const { provider, model, apiKey } = req.body;
-
-    if (!provider || !model || !apiKey) {
-      return res.status(400).json({ error: "Provider, model, and API key are required" });
-    }
-
-    try {
-      const apiKeys = await readApiKeys();
-      apiKeys[userId] = { provider, model, apiKey };
-      await writeApiKeys(apiKeys);
-
-      // Lưu API key vào biến môi trường (tạm thời cho session này)
-      process.env.COHERE_API_KEY = apiKey;
-
-      return res.status(200).json({ message: "API key saved successfully" });
-    } catch (error) {
-      console.error("Error saving API key:", error);
-      return res.status(500).json({ error: "Failed to save API key" });
-    }
-  }
-
-  return res.status(405).json({ error: "Method not allowed" });
 }
