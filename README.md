@@ -15,11 +15,11 @@ This is a **customizable chatbot application** built with [Next.js](https://next
 
 ### 1. Clone the repository
 ```bash
-git clone https://github.com/yourusername/chatbot-app.git
+git clone https://github.com/Phannhothinh/chatbot-op.git
 cd chatbot-app
 ```
 
-### 2. Install dependencies
+### 2. Install dependencies.
 ```bash
 npm install
 # or
