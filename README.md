@@ -61,7 +61,3 @@ Or configure a production `.env` file and use Docker/AWS if needed.
 
 ## Contributions
 Pull requests are welcome! Feel free to fork this repository and submit improvements.
-
-## License
-MIT License
-
